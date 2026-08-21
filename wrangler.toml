@@ -1,0 +1,10 @@
+name = "bofa-qqbot"
+main = "src/index.ts"
+compatibility_date = "2026-08-15"
+
+[[routes]]
+pattern = "bot.efa-tech.dev/qq*"
+zone_name = "efa-tech.dev"
+
+[observability]
+enabled = true
