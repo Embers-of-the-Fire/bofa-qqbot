@@ -93,3 +93,58 @@ curl -X POST https://bot.efa-tech.dev/event \
     }
   }'
 ```
+
+### `data_update`
+
+Game data was updated on one or more servers. The bot posts a Markdown
+message to every group listed in the `recognized-group` KV configuration:
+
+```markdown
+# 数据更新
+
+本次更新涉及以下版本：
+- {name} ({id})
+  版本：{version}
+  数据同步：{build}
+  创建时间：{createdAt}
+```
+
+One list item is rendered per server.
+
+Payload:
+
+| Field    | Type   | Description                            |
+| -------- | ------ | -------------------------------------- |
+| servers  | array  | Non-empty list of server update entries |
+
+Each entry in `servers`:
+
+| Field     | Type   | Description                              |
+| --------- | ------ | ---------------------------------------- |
+| id        | string | Server identifier                        |
+| name      | string | Localized Chinese server name            |
+| build     | int    | Build number of the synced data          |
+| version   | string | Game version                             |
+| createdAt | string | ISO 8601 timestamp of the data snapshot  |
+
+Example:
+
+```sh
+curl -X POST https://bot.efa-tech.dev/event \
+  -H "Authorization: Bearer $EVENT_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "data_update",
+    "payload": {
+      "servers": [
+        {
+          "id": "tranquility",
+          "name": "晨曦",
+          "build": 2798617,
+          "version": "24.06",
+          "createdAt": "2026-08-20T12:34:56Z"
+        }
+      ]
+    }
+  }'
+```

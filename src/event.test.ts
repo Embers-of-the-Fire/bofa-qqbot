@@ -1,7 +1,11 @@
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "./env";
-import event, { EventErrorCode, renderReleaseMarkdown } from "./event";
+import event, {
+  EventErrorCode,
+  renderDataUpdateMarkdown,
+  renderReleaseMarkdown,
+} from "./event";
 
 const SECRET = "test-event-secret";
 
@@ -60,6 +64,21 @@ const validEvent = {
   payload: { version: "1.2.3", tag: "v1.2.3", changelog: "# Changes\n" },
 };
 
+const validDataUpdateEvent = {
+  type: "data_update",
+  payload: {
+    servers: [
+      {
+        id: "tranquility",
+        name: "晨曦",
+        build: 2798617,
+        version: "24.06",
+        createdAt: "2026-08-20T12:34:56Z",
+      },
+    ],
+  },
+};
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -73,6 +92,51 @@ describe("renderReleaseMarkdown", () => {
         changelog: "# Changes\n\n- stuff",
       }),
     ).toBe("# EFA 1.2.3\n> 标签：v1.2.3\n\n# Changes\n\n- stuff");
+  });
+});
+
+describe("renderDataUpdateMarkdown", () => {
+  it("renders a single server", () => {
+    expect(
+      renderDataUpdateMarkdown({
+        servers: [
+          {
+            id: "tranquility",
+            name: "晨曦",
+            build: 2798617,
+            version: "24.06",
+            createdAt: "2026-08-20T12:34:56Z",
+          },
+        ],
+      }),
+    ).toBe(
+      "# 数据更新\n\n本次更新涉及以下版本：\n- 晨曦 (tranquility)\n  版本：24.06\n  数据同步：2798617\n  创建时间：2026-08-20T12:34:56Z",
+    );
+  });
+
+  it("renders multiple servers", () => {
+    expect(
+      renderDataUpdateMarkdown({
+        servers: [
+          {
+            id: "tranquility",
+            name: "晨曦",
+            build: 2798617,
+            version: "24.06",
+            createdAt: "2026-08-20T12:34:56Z",
+          },
+          {
+            id: "serenity",
+            name: "宁静",
+            build: 2799000,
+            version: "24.06.1",
+            createdAt: "2026-08-21T01:02:03Z",
+          },
+        ],
+      }),
+    ).toBe(
+      "# 数据更新\n\n本次更新涉及以下版本：\n- 晨曦 (tranquility)\n  版本：24.06\n  数据同步：2798617\n  创建时间：2026-08-20T12:34:56Z\n- 宁静 (serenity)\n  版本：24.06.1\n  数据同步：2799000\n  创建时间：2026-08-21T01:02:03Z",
+    );
   });
 });
 
@@ -161,6 +225,78 @@ describe("POST /event", () => {
     const res = await authed({ type: "unknown", payload: {} });
     expect(res.status).toBe(400);
     expect(await errorcode(res)).toBe(EventErrorCode.UnknownEventType);
+  });
+
+  it("broadcasts data_update markdown to all recognized groups", async () => {
+    const fetchMock = vi.fn(
+      (input: Request | URL | string, _init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/app/getAppAccessToken")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ access_token: "tok", expires_in: 7200 }),
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: "m1", timestamp: "t" })),
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const env = testEnv({
+      admin: "some-admin-openid",
+      "recognized-group": '["GROUP_A"]',
+    });
+    const res = await authed(validDataUpdateEvent, env);
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      status: "ok",
+      errorcode: EventErrorCode.None,
+    });
+
+    const groupCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes("/v2/groups/"),
+    );
+    expect(groupCalls.map(([input]) => String(input))).toEqual([
+      "https://api.bot.qq.com/v2/groups/GROUP_A/messages",
+    ]);
+    const [, init] = groupCalls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as {
+      msg_type: number;
+      markdown: { content: string };
+    };
+    expect(body.msg_type).toBe(2);
+    expect(body.markdown.content).toBe(
+      "# 数据更新\n\n本次更新涉及以下版本：\n- 晨曦 (tranquility)\n  版本：24.06\n  数据同步：2798617\n  创建时间：2026-08-20T12:34:56Z",
+    );
+  });
+
+  it("rejects a data_update event with an empty servers array", async () => {
+    const res = await authed({ type: "data_update", payload: { servers: [] } });
+    expect(res.status).toBe(400);
+    expect(await errorcode(res)).toBe(EventErrorCode.InvalidPayload);
+  });
+
+  it("rejects a data_update event with an invalid server entry", async () => {
+    const res = await authed({
+      type: "data_update",
+      payload: {
+        servers: [
+          {
+            id: "tranquility",
+            name: "晨曦",
+            build: "2798617",
+            version: "24.06",
+            createdAt: "2026-08-20T12:34:56Z",
+          },
+        ],
+      },
+    });
+    expect(res.status).toBe(400);
+    expect(await errorcode(res)).toBe(EventErrorCode.InvalidPayload);
   });
 
   it("rejects an invalid payload", async () => {

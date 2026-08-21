@@ -32,6 +32,42 @@ function isReleaseCreatedPayload(p: unknown): p is ReleaseCreatedPayload {
   );
 }
 
+interface DataUpdateServer {
+  id: string;
+  name: string;
+  build: number;
+  version: string;
+  createdAt: string;
+}
+
+interface DataUpdatePayload {
+  servers: DataUpdateServer[];
+}
+
+function isDataUpdatePayload(p: unknown): p is DataUpdatePayload {
+  if (typeof p !== "object" || p === null) {
+    return false;
+  }
+  const o = p as Record<string, unknown>;
+  if (!Array.isArray(o.servers) || o.servers.length === 0) {
+    return false;
+  }
+  return o.servers.every((s) => {
+    if (typeof s !== "object" || s === null) {
+      return false;
+    }
+    const srv = s as Record<string, unknown>;
+    return (
+      typeof srv.id === "string" &&
+      typeof srv.name === "string" &&
+      typeof srv.build === "number" &&
+      Number.isInteger(srv.build) &&
+      typeof srv.version === "string" &&
+      typeof srv.createdAt === "string"
+    );
+  });
+}
+
 function safeEqual(a: string, b: string): boolean {
   const encoder = new TextEncoder();
   const ea = encoder.encode(a);
@@ -57,6 +93,16 @@ function errorResponse(
 
 export function renderReleaseMarkdown(p: ReleaseCreatedPayload): string {
   return `# EFA ${p.version}\n> 标签：${p.tag}\n\n${p.changelog}`;
+}
+
+export function renderDataUpdateMarkdown(p: DataUpdatePayload): string {
+  const items = p.servers
+    .map(
+      (s) =>
+        `- ${s.name} (${s.id})\n  版本：${s.version}\n  数据同步：${s.build}\n  创建时间：${s.createdAt}`,
+    )
+    .join("\n");
+  return `# 数据更新\n\n本次更新涉及以下版本：\n${items}`;
 }
 
 const event = new Hono<{ Bindings: Bindings }>();
@@ -90,21 +136,33 @@ event.post("/", async (c) => {
     );
   }
 
-  if (body.type !== "release-created") {
+  let markdown: string;
+  if (body.type === "release-created") {
+    if (!isReleaseCreatedPayload(body.payload)) {
+      return errorResponse(
+        c,
+        400,
+        EventErrorCode.InvalidPayload,
+        "payload must contain string fields: version, tag, changelog",
+      );
+    }
+    markdown = renderReleaseMarkdown(body.payload);
+  } else if (body.type === "data_update") {
+    if (!isDataUpdatePayload(body.payload)) {
+      return errorResponse(
+        c,
+        400,
+        EventErrorCode.InvalidPayload,
+        "payload must contain a non-empty servers array, each with fields: id (string), name (string), build (int), version (string), createdAt (string)",
+      );
+    }
+    markdown = renderDataUpdateMarkdown(body.payload);
+  } else {
     return errorResponse(
       c,
       400,
       EventErrorCode.UnknownEventType,
       `unknown event type: ${String(body.type)}`,
-    );
-  }
-
-  if (!isReleaseCreatedPayload(body.payload)) {
-    return errorResponse(
-      c,
-      400,
-      EventErrorCode.InvalidPayload,
-      "payload must contain string fields: version, tag, changelog",
     );
   }
 
@@ -114,7 +172,6 @@ event.post("/", async (c) => {
   );
 
   const config = await getConfiguration(c.env.CONFIG);
-  const markdown = renderReleaseMarkdown(body.payload);
 
   if (config.recognizedGroups.length === 0) {
     console.log("no recognized groups configured, skipping broadcast");
@@ -135,10 +192,10 @@ event.post("/", async (c) => {
         ),
       ),
     );
-    console.log("release broadcast results", JSON.stringify(results));
+    console.log("event broadcast results", JSON.stringify(results));
   } catch (e) {
     console.error(
-      "release broadcast failed",
+      "event broadcast failed",
       e instanceof Error ? e.message : String(e),
     );
   }
