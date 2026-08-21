@@ -19,6 +19,15 @@ app.post("/qq", async (c) => {
 
   const body = await c.req.text();
 
+  console.log(
+    "qq webhook POST",
+    JSON.stringify({
+      appid: c.req.header("X-Bot-Appid"),
+      timestamp: c.req.header("X-Signature-Timestamp"),
+      body,
+    }),
+  );
+
   let payload: Payload;
   try {
     payload = JSON.parse(body) as Payload;
@@ -33,10 +42,12 @@ app.post("/qq", async (c) => {
     const d = payload.d as CallbackValidationData;
     const msg = encoder.encode(d.event_ts + d.plain_token);
     const signature = await crypto.subtle.sign("Ed25519", keys.privateKey, msg);
-    return c.json({
+    const response = {
       plain_token: d.plain_token,
       signature: bytesToHex(signature),
-    });
+    };
+    console.log("qq webhook validation response", JSON.stringify(response));
+    return c.json(response);
   }
 
   const signatureHeader = c.req.header("X-Signature-Ed25519");
