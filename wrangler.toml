@@ -6,6 +6,14 @@ compatibility_date = "2026-08-15"
 pattern = "bot.efa-tech.dev/qq*"
 zone_name = "efa-tech.dev"
 
+[[routes]]
+pattern = "bot.efa-tech.dev/event*"
+zone_name = "efa-tech.dev"
+
+[[kv_namespaces]]
+binding = "CONFIG"
+id = "b04bf208983943b89db45dc21403b5e7"
+
 [observability]
 enabled = true
 head_sampling_rate = 1

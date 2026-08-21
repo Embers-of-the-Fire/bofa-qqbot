@@ -1,13 +1,12 @@
 import { Hono } from "hono";
 import { bytesToHex, getBotKeys, hexToBytes } from "./ed25519";
+import type { Bindings } from "./env";
+import event from "./event";
 import { type CallbackValidationData, OpCode, type Payload } from "./payload";
 
-type Bindings = {
-  QQ_BOT_APPID: string;
-  QQ_BOT_SECRET: string;
-};
-
 const app = new Hono<{ Bindings: Bindings }>();
+
+app.route("/event", event);
 
 app.get("/qq", (c) => c.text("ok"));
 
