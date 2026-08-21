@@ -100,7 +100,7 @@ Game data was updated on one or more servers. The bot posts a Markdown
 message to every group listed in the `recognized-group` KV configuration:
 
 ```markdown
-# 数据更新
+# 数据更新 {date}
 
 本次更新涉及以下版本：
 - {name} ({id})
@@ -109,7 +109,8 @@ message to every group listed in the `recognized-group` KV configuration:
   创建时间：{createdAt}
 ```
 
-One list item is rendered per server.
+`{date}` is the current date in UTC+8, formatted as `yyyy/mm/dd`. One list
+item is rendered per server.
 
 Payload:
 

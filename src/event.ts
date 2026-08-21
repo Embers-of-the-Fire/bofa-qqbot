@@ -95,14 +95,25 @@ export function renderReleaseMarkdown(p: ReleaseCreatedPayload): string {
   return `# EFA ${p.version}\n> 标签：${p.tag}\n\n${p.changelog}`;
 }
 
-export function renderDataUpdateMarkdown(p: DataUpdatePayload): string {
+function formatUtc8Date(now: Date): string {
+  const shifted = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(shifted.getUTCDate()).padStart(2, "0");
+  return `${y}/${m}/${d}`;
+}
+
+export function renderDataUpdateMarkdown(
+  p: DataUpdatePayload,
+  now: Date = new Date(),
+): string {
   const items = p.servers
     .map(
       (s) =>
         `- ${s.name} (${s.id})\n  版本：${s.version}\n  数据同步：${s.build}\n  创建时间：${s.createdAt}`,
     )
     .join("\n");
-  return `# 数据更新\n\n本次更新涉及以下版本：\n${items}`;
+  return `# 数据更新 ${formatUtc8Date(now)}\n\n本次更新涉及以下版本：\n${items}`;
 }
 
 const event = new Hono<{ Bindings: Bindings }>();
