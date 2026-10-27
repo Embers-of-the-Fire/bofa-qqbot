@@ -67,6 +67,7 @@ const validEvent = {
 const validDataUpdateEvent = {
   type: "data_update",
   payload: {
+    channel: "testing",
     servers: [
       {
         id: "tranquility",
@@ -94,6 +95,30 @@ describe("renderReleaseMarkdown", () => {
       }),
     ).toBe("# EFA 1.2.3\n> 标签：v1.2.3\n\n# Changes\n\n- stuff");
   });
+
+  it("renders the testing track marker on the title", () => {
+    expect(
+      renderReleaseMarkdown({
+        version: "1.2.3-beta.1",
+        tag: "v1.2.3-beta.1",
+        changelog: "# Changes\n\n- stuff",
+        track: "testing",
+      }),
+    ).toBe(
+      "# EFA 1.2.3-beta.1（测试版）\n> 标签：v1.2.3-beta.1\n\n# Changes\n\n- stuff",
+    );
+  });
+
+  it("renders the stable track marker on the title", () => {
+    expect(
+      renderReleaseMarkdown({
+        version: "1.2.3",
+        tag: "v1.2.3",
+        changelog: "# Changes\n\n- stuff",
+        track: "stable",
+      }),
+    ).toBe("# EFA 1.2.3（稳定版）\n> 标签：v1.2.3\n\n# Changes\n\n- stuff");
+  });
 });
 
 describe("renderDataUpdateMarkdown", () => {
@@ -103,6 +128,7 @@ describe("renderDataUpdateMarkdown", () => {
     expect(
       renderDataUpdateMarkdown(
         {
+          channel: "testing",
           servers: [
             {
               id: "tranquility",
@@ -116,7 +142,7 @@ describe("renderDataUpdateMarkdown", () => {
         now,
       ),
     ).toBe(
-      "# 数据更新 2026/08/21\n\n本次更新涉及以下版本：\n- 晨曦 (tranquility)\n  版本：24.06\n  数据同步：2798617\n  创建时间：2026-08-20T12:34:56Z",
+      "# 数据更新 2026/08/21（测试频道）\n\n本次更新涉及以下版本：\n- 晨曦 (tranquility)\n  版本：24.06\n  数据同步：2798617\n  创建时间：2026-08-20T12:34:56Z",
     );
   });
 
@@ -124,6 +150,7 @@ describe("renderDataUpdateMarkdown", () => {
     expect(
       renderDataUpdateMarkdown(
         {
+          channel: "stable",
           servers: [
             {
               id: "tranquility",
@@ -144,7 +171,7 @@ describe("renderDataUpdateMarkdown", () => {
         now,
       ),
     ).toBe(
-      "# 数据更新 2026/08/21\n\n本次更新涉及以下版本：\n- 晨曦 (tranquility)\n  版本：24.06\n  数据同步：2798617\n  创建时间：2026-08-20T12:34:56Z\n- 宁静 (serenity)\n  版本：24.06.1\n  数据同步：2799000\n  创建时间：2026-08-21T01:02:03Z",
+      "# 数据更新 2026/08/21（稳定频道）\n\n本次更新涉及以下版本：\n- 晨曦 (tranquility)\n  版本：24.06\n  数据同步：2798617\n  创建时间：2026-08-20T12:34:56Z\n- 宁静 (serenity)\n  版本：24.06.1\n  数据同步：2799000\n  创建时间：2026-08-21T01:02:03Z",
     );
   });
 
@@ -152,6 +179,7 @@ describe("renderDataUpdateMarkdown", () => {
     expect(
       renderDataUpdateMarkdown(
         {
+          channel: "testing",
           servers: [
             {
               id: "tranquility",
@@ -164,7 +192,7 @@ describe("renderDataUpdateMarkdown", () => {
         },
         new Date("2026-08-20T17:30:00Z"),
       ),
-    ).toContain("# 数据更新 2026/08/21\n");
+    ).toContain("# 数据更新 2026/08/21（测试频道）\n");
   });
 });
 
@@ -227,6 +255,55 @@ describe("POST /event", () => {
     const res = await authed(validEvent);
     expect(res.status).toBe(200);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("broadcasts the track marker for a testing release", async () => {
+    const fetchMock = vi.fn(
+      (input: Request | URL | string, _init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/app/getAppAccessToken")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({ access_token: "tok", expires_in: 7200 }),
+            ),
+          );
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: "m1", timestamp: "t" })),
+        );
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const env = testEnv({
+      admin: "some-admin-openid",
+      "recognized-group": '["GROUP_A"]',
+    });
+    const res = await authed(
+      {
+        type: "release-created",
+        payload: {
+          version: "1.2.3-beta.1",
+          tag: "v1.2.3-beta.1",
+          changelog: "# Changes\n",
+          track: "testing",
+        },
+      },
+      env,
+    );
+
+    expect(res.status).toBe(200);
+    const groupCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes("/v2/groups/"),
+    );
+    expect(groupCalls).toHaveLength(1);
+    const [, init] = groupCalls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as {
+      markdown: { content: string };
+    };
+    expect(body.markdown.content).toBe(
+      "# EFA 1.2.3-beta.1（测试版）\n> 标签：v1.2.3-beta.1\n\n# Changes\n",
+    );
   });
 
   it("rejects a missing Authorization header", async () => {
@@ -300,12 +377,54 @@ describe("POST /event", () => {
     };
     expect(body.msg_type).toBe(2);
     expect(body.markdown.content).toBe(
-      "# 数据更新 2026/08/21\n\n本次更新涉及以下版本：\n- 晨曦 (tranquility)\n  版本：24.06\n  数据同步：2798617\n  创建时间：2026-08-20T12:34:56Z",
+      "# 数据更新 2026/08/21（测试频道）\n\n本次更新涉及以下版本：\n- 晨曦 (tranquility)\n  版本：24.06\n  数据同步：2798617\n  创建时间：2026-08-20T12:34:56Z",
     );
   });
 
+  it("rejects a data_update event without a channel", async () => {
+    const res = await authed({
+      type: "data_update",
+      payload: {
+        servers: [
+          {
+            id: "tranquility",
+            name: "晨曦",
+            build: 2798617,
+            version: "24.06",
+            createdAt: "2026-08-20T12:34:56Z",
+          },
+        ],
+      },
+    });
+    expect(res.status).toBe(400);
+    expect(await errorcode(res)).toBe(EventErrorCode.InvalidPayload);
+  });
+
+  it("rejects a data_update event with an unknown channel", async () => {
+    const res = await authed({
+      type: "data_update",
+      payload: {
+        channel: "nightly",
+        servers: [
+          {
+            id: "tranquility",
+            name: "晨曦",
+            build: 2798617,
+            version: "24.06",
+            createdAt: "2026-08-20T12:34:56Z",
+          },
+        ],
+      },
+    });
+    expect(res.status).toBe(400);
+    expect(await errorcode(res)).toBe(EventErrorCode.InvalidPayload);
+  });
+
   it("rejects a data_update event with an empty servers array", async () => {
-    const res = await authed({ type: "data_update", payload: { servers: [] } });
+    const res = await authed({
+      type: "data_update",
+      payload: { channel: "testing", servers: [] },
+    });
     expect(res.status).toBe(400);
     expect(await errorcode(res)).toBe(EventErrorCode.InvalidPayload);
   });
@@ -314,6 +433,7 @@ describe("POST /event", () => {
     const res = await authed({
       type: "data_update",
       payload: {
+        channel: "testing",
         servers: [
           {
             id: "tranquility",
@@ -323,6 +443,20 @@ describe("POST /event", () => {
             createdAt: "2026-08-20T12:34:56Z",
           },
         ],
+      },
+    });
+    expect(res.status).toBe(400);
+    expect(await errorcode(res)).toBe(EventErrorCode.InvalidPayload);
+  });
+
+  it("rejects a release-created event with an invalid track", async () => {
+    const res = await authed({
+      type: "release-created",
+      payload: {
+        version: "1.2.3",
+        tag: "v1.2.3",
+        changelog: "# Changes\n",
+        track: "nightly",
       },
     });
     expect(res.status).toBe(400);

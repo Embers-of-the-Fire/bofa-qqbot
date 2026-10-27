@@ -14,10 +14,17 @@ export const EventErrorCode = {
 export type EventErrorCode =
   (typeof EventErrorCode)[keyof typeof EventErrorCode];
 
+export type Channel = "testing" | "stable";
+
+function isChannel(v: unknown): v is Channel {
+  return v === "testing" || v === "stable";
+}
+
 interface ReleaseCreatedPayload {
   version: string;
   tag: string;
   changelog: string;
+  track?: Channel;
 }
 
 function isReleaseCreatedPayload(p: unknown): p is ReleaseCreatedPayload {
@@ -28,7 +35,8 @@ function isReleaseCreatedPayload(p: unknown): p is ReleaseCreatedPayload {
   return (
     typeof o.version === "string" &&
     typeof o.tag === "string" &&
-    typeof o.changelog === "string"
+    typeof o.changelog === "string" &&
+    (o.track === undefined || isChannel(o.track))
   );
 }
 
@@ -41,6 +49,7 @@ interface DataUpdateServer {
 }
 
 interface DataUpdatePayload {
+  channel: Channel;
   servers: DataUpdateServer[];
 }
 
@@ -49,6 +58,9 @@ function isDataUpdatePayload(p: unknown): p is DataUpdatePayload {
     return false;
   }
   const o = p as Record<string, unknown>;
+  if (!isChannel(o.channel)) {
+    return false;
+  }
   if (!Array.isArray(o.servers) || o.servers.length === 0) {
     return false;
   }
@@ -91,8 +103,14 @@ function errorResponse(
   return c.json({ status: "error", errorcode, error: { message } }, httpStatus);
 }
 
+const releaseTrackLabel: Record<Channel, string> = {
+  testing: "测试版",
+  stable: "稳定版",
+};
+
 export function renderReleaseMarkdown(p: ReleaseCreatedPayload): string {
-  return `# EFA ${p.version}\n> 标签：${p.tag}\n\n${p.changelog}`;
+  const suffix = p.track ? `（${releaseTrackLabel[p.track]}）` : "";
+  return `# EFA ${p.version}${suffix}\n> 标签：${p.tag}\n\n${p.changelog}`;
 }
 
 function formatUtc8Date(now: Date): string {
@@ -102,6 +120,11 @@ function formatUtc8Date(now: Date): string {
   const d = String(shifted.getUTCDate()).padStart(2, "0");
   return `${y}/${m}/${d}`;
 }
+
+const dataChannelLabel: Record<Channel, string> = {
+  testing: "测试频道",
+  stable: "稳定频道",
+};
 
 export function renderDataUpdateMarkdown(
   p: DataUpdatePayload,
@@ -113,7 +136,7 @@ export function renderDataUpdateMarkdown(
         `- ${s.name} (${s.id})\n  版本：${s.version}\n  数据同步：${s.build}\n  创建时间：${s.createdAt}`,
     )
     .join("\n");
-  return `# 数据更新 ${formatUtc8Date(now)}\n\n本次更新涉及以下版本：\n${items}`;
+  return `# 数据更新 ${formatUtc8Date(now)}（${dataChannelLabel[p.channel]}）\n\n本次更新涉及以下版本：\n${items}`;
 }
 
 const event = new Hono<{ Bindings: Bindings }>();
@@ -154,7 +177,7 @@ event.post("/", async (c) => {
         c,
         400,
         EventErrorCode.InvalidPayload,
-        "payload must contain string fields: version, tag, changelog",
+        'payload must contain string fields: version, tag, changelog, and optional track ("testing" or "stable")',
       );
     }
     markdown = renderReleaseMarkdown(body.payload);
@@ -164,7 +187,7 @@ event.post("/", async (c) => {
         c,
         400,
         EventErrorCode.InvalidPayload,
-        "payload must contain a non-empty servers array, each with fields: id (string), name (string), build (int), version (string), createdAt (string)",
+        'payload must contain channel ("testing" or "stable") and a non-empty servers array, each with fields: id (string), name (string), build (int), version (string), createdAt (string)',
       );
     }
     markdown = renderDataUpdateMarkdown(body.payload);

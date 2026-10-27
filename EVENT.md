@@ -64,19 +64,23 @@ A new release was published. The bot posts a Markdown message to every
 group listed in the `recognized-group` KV configuration:
 
 ```markdown
-# EFA {version}
+# EFA {version}（测试版）
 > 标签：{tag}
 
 {changelog}
 ```
 
+The title suffix is `（测试版）` when `track` is `testing`, `（稳定版）` when
+`track` is `stable`, and omitted when `track` is absent (legacy senders).
+
 Payload:
 
-| Field     | Type   | Description              |
-| --------- | ------ | ------------------------ |
-| version   | string | Release version          |
-| tag       | string | Git tag                  |
-| changelog | string | Changelog in Markdown    |
+| Field     | Type   | Description                                |
+| --------- | ------ | ------------------------------------------ |
+| version   | string | Release version                            |
+| tag       | string | Git tag                                    |
+| changelog | string | Changelog in Markdown                      |
+| track     | string | Optional; `testing` or `stable`            |
 
 Example:
 
@@ -87,9 +91,10 @@ curl -X POST https://bot.efa-tech.dev/event \
   -d '{
     "type": "release-created",
     "payload": {
-      "version": "1.2.3",
-      "tag": "v1.2.3",
-      "changelog": "# Changes\n\n- New feature"
+      "version": "1.2.3-beta.1",
+      "tag": "v1.2.3-beta.1",
+      "changelog": "# Changes\n\n- New feature",
+      "track": "testing"
     }
   }'
 ```
@@ -100,7 +105,7 @@ Game data was updated on one or more servers. The bot posts a Markdown
 message to every group listed in the `recognized-group` KV configuration:
 
 ```markdown
-# 数据更新 {date}
+# 数据更新 {date}（测试频道）
 
 本次更新涉及以下版本：
 - {name} ({id})
@@ -110,12 +115,14 @@ message to every group listed in the `recognized-group` KV configuration:
 ```
 
 `{date}` is the current date in UTC+8, formatted as `yyyy/mm/dd`. One list
-item is rendered per server.
+item is rendered per server. The title suffix is `（测试频道）` when
+`channel` is `testing` and `（稳定频道）` when `channel` is `stable`.
 
 Payload:
 
-| Field    | Type   | Description                            |
-| -------- | ------ | -------------------------------------- |
+| Field    | Type   | Description                             |
+| -------- | ------ | --------------------------------------- |
+| channel  | string | Required; `testing` or `stable`         |
 | servers  | array  | Non-empty list of server update entries |
 
 Each entry in `servers`:
@@ -137,6 +144,7 @@ curl -X POST https://bot.efa-tech.dev/event \
   -d '{
     "type": "data_update",
     "payload": {
+      "channel": "testing",
       "servers": [
         {
           "id": "tranquility",
